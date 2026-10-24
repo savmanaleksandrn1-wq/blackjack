@@ -3,22 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Online Blackjack & Chat</title>
+    <title>Online Blackjack</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         :root { --gold: #dfb15b; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
         body { background: #050a07; color: #fff; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
-        .table-container { width: 95%; max-width: 1200px; height: 60vh; margin-top: 20px; background: radial-gradient(circle, #136a3c 0%, #031c0e 100%); border: 12px solid #2d1810; border-radius: 80px; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        .players-zone { display: flex; justify-content: space-around; width: 100%; gap: 10px; margin-top: 20px; }
-        .player-spot { background: rgba(0,0,0,0.4); border: 2px solid rgba(223,177,91,0.3); border-radius: 15px; padding: 15px; width: 30%; text-align: center; }
-        .controls, .chat-container { margin-top: 15px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 12px; border: 1px solid var(--gold); display: flex; gap: 10px; align-items: center; width: 95%; max-width: 1200px; }
-        .chat-container { flex-direction: column; align-items: stretch; height: 150px; }
-        .chat-messages { flex-grow: 1; overflow-y: auto; background: #111; padding: 8px; border-radius: 6px; font-size: 14px; margin-bottom: 8px; }
+        .table-container { width: 95%; max-width: 1200px; min-height: 50vh; margin-top: 20px; background: radial-gradient(circle, #136a3c 0%, #031c0e 100%); border: 12px solid #2d1810; border-radius: 40px; display: flex; flex-direction: column; align-items: center; padding: 20px; position: relative; }
+        .dealer-zone { margin-bottom: 20px; text-align: center; }
+        .cards { display: flex; gap: 8px; justify-content: center; margin: 10px 0; }
+        .card { background: #fff; color: #000; width: 45px; height: 65px; border-radius: 6px; display: flex; flex-direction: column; justify-content: center; align-items: center; font-weight: bold; font-size: 16px; border: 1px solid #000; }
+        .card.red { color: #d00; }
+        .players-zone { display: flex; justify-content: space-around; width: 100%; gap: 10px; }
+        .player-spot { background: rgba(0,0,0,0.5); border: 2px solid rgba(223,177,91,0.4); border-radius: 12px; padding: 12px; width: 30%; text-align: center; }
+        .controls, .chat-container { margin-top: 15px; background: rgba(0,0,0,0.8); padding: 12px; border-radius: 10px; border: 1px solid var(--gold); display: flex; gap: 10px; align-items: center; width: 95%; max-width: 1200px; justify-content: center; flex-wrap: wrap; }
+        .chat-container { flex-direction: column; align-items: stretch; height: 130px; }
+        .chat-messages { flex-grow: 1; overflow-y: auto; background: #111; padding: 6px; border-radius: 6px; font-size: 13px; margin-bottom: 6px; }
         .chat-input-box { display: flex; gap: 10px; }
-        input, button { padding: 8px 14px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
+        input, button { padding: 8px 12px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
         input { background: #222; color: #fff; border: 1px solid #444; flex-grow: 1; }
         button { background: var(--gold); color: #000; }
+        button:hover { opacity: 0.9; }
         .admin-btn { position: fixed; top: 15px; right: 15px; background: #222; color: var(--gold); border: 1px solid var(--gold); }
         .modal { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:none; justify-content:center; align-items:center; z-index:100; }
         .modal-content { background:#141d17; border:2px solid var(--gold); padding:20px; border-radius:10px; width:300px; display:flex; flex-direction:column; gap:10px; }
@@ -29,14 +34,20 @@
     <button class="admin-btn" onclick="openAdmin()">Админ-панель</button>
 
     <div class="table-container">
+        <div class="dealer-zone">
+            <h3>Дилер (Очки: <span id="dealer-score">0</span>)</h3>
+            <div class="cards" id="dealer-cards"></div>
+        </div>
+
         <h2>Игровой Стол Blackjack</h2>
         <div class="players-zone" id="players-zone"></div>
     </div>
 
-    <div class="controls">
-        <span>Сделать ставку: </span>
+    <div class="controls" id="action-controls">
+        <span>Ставка: </span>
         <button onclick="makeBet(100)">+100</button>
         <button onclick="makeBet(500)">+500</button>
+        <button style="background:#2ecc71;" onclick="startGame()">Раздать карты</button>
     </div>
 
     <div class="chat-container">
@@ -65,21 +76,75 @@
             socket.emit('set_bet', amount);
         }
 
-        socket.on('update_players', (players) => {
+        function startGame() {
+            socket.emit('start_game');
+        }
+
+        function hit() {
+            socket.emit('hit');
+        }
+
+        function stand() {
+            socket.emit('stand');
+        }
+
+        function resetRound() {
+            socket.emit('reset_round');
+        }
+
+        socket.on('update_game', (data) => {
+            // Dealer
+            let dealerDiv = document.getElementById('dealer-cards');
+            dealerDiv.innerHTML = '';
+            if (data.dealer.hand.length > 0) {
+                data.dealer.hand.forEach((card, index) => {
+                    let isHidden = (data.gameStatus === 'playing' && index === 1);
+                    dealerDiv.innerHTML += `<div class="card ${['♥','♦'].includes(card.suit)?'red':''}">${isHidden ? '🂠' : card.value + card.suit}</div>`;
+                });
+                document.getElementById('dealer-score').innerText = data.gameStatus === 'playing' ? '?' : data.dealer.score;
+            }
+
+            // Players
             const zone = document.getElementById('players-zone');
             zone.innerHTML = '';
-            for (let id in players) {
-                let p = players[id];
+            for (let id in data.players) {
+                let p = data.players[id];
                 let isMe = id === socket.id;
+                let cardsHtml = p.hand.map(c => `<div class="card ${['♥','♦'].includes(c.suit)?'red':''}">${c.value}${c.suit}</div>`).join('');
+                
                 let div = document.createElement('div');
                 div.className = 'player-spot';
                 div.innerHTML = `
                     <h4>${p.name} ${isMe ? '(Вы)' : ''}</h4>
                     <p>Баланс: $${p.balance}</p>
                     <p>Ставка: $${p.bet}</p>
-                    <p style="font-size:11px; color:#aaa; margin-top:5px; word-break:break-all;">ID: ${id}</p>
+                    <div class="cards">${cardsHtml}</div>
+                    <p>Очки: ${p.score}</p>
+                    <p><b>Статус: ${p.status}</b></p>
+                    <p style="font-size:10px; color:#aaa; margin-top:5px; word-break:break-all;">ID: ${id}</p>
                 `;
                 zone.appendChild(div);
+            }
+
+            // Controls
+            let controls = document.getElementById('action-controls');
+            let myP = data.players[socket.id];
+            if (myP && myP.status === 'playing') {
+                controls.innerHTML = `
+                    <button style="background:#3498db; color:#fff;" onclick="hit()">Взять карту</button>
+                    <button style="background:#e74c3c; color:#fff;" onclick="stand()">Хватит</button>
+                `;
+            } else if (data.gameStatus === 'finished') {
+                controls.innerHTML = `
+                    <button style="background:#f1c40f;" onclick="resetRound()">Следующий раунд</button>
+                `;
+            } else if (data.gameStatus === 'betting') {
+                controls.innerHTML = `
+                    <span>Ставка: </span>
+                    <button onclick="makeBet(100)">+100</button>
+                    <button onclick="makeBet(500)">+500</button>
+                    <button style="background:#2ecc71;" onclick="startGame()">Раздать карты</button>
+                `;
             }
         });
 
