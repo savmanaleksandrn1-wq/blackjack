@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Online Blackjack & Chat</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root { --gold: #dfb15b; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: #050a07; color: #fff; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+        .table-container { width: 95%; max-width: 1200px; height: 60vh; margin-top: 20px; background: radial-gradient(circle, #136a3c 0%, #031c0e 100%); border: 12px solid #2d1810; border-radius: 80px; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .players-zone { display: flex; justify-content: space-around; width: 100%; gap: 10px; margin-top: 20px; }
+        .player-spot { background: rgba(0,0,0,0.4); border: 2px solid rgba(223,177,91,0.3); border-radius: 15px; padding: 15px; width: 30%; text-align: center; }
+        .controls, .chat-container { margin-top: 15px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 12px; border: 1px solid var(--gold); display: flex; gap: 10px; align-items: center; width: 95%; max-width: 1200px; }
+        .chat-container { flex-direction: column; align-items: stretch; height: 150px; }
+        .chat-messages { flex-grow: 1; overflow-y: auto; background: #111; padding: 8px; border-radius: 6px; font-size: 14px; margin-bottom: 8px; }
+        .chat-input-box { display: flex; gap: 10px; }
+        input, button { padding: 8px 14px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
+        input { background: #222; color: #fff; border: 1px solid #444; flex-grow: 1; }
+        button { background: var(--gold); color: #000; }
+        .admin-btn { position: fixed; top: 15px; right: 15px; background: #222; color: var(--gold); border: 1px solid var(--gold); }
+        .modal { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:none; justify-content:center; align-items:center; z-index:100; }
+        .modal-content { background:#141d17; border:2px solid var(--gold); padding:20px; border-radius:10px; width:300px; display:flex; flex-direction:column; gap:10px; }
+    </style>
+</head>
+<body>
+
+    <button class="admin-btn" onclick="openAdmin()">Админ-панель</button>
+
+    <div class="table-container">
+        <h2>Игровой Стол Blackjack</h2>
+        <div class="players-zone" id="players-zone"></div>
+    </div>
+
+    <div class="controls">
+        <span>Сделать ставку: </span>
+        <button onclick="makeBet(100)">+100</button>
+        <button onclick="makeBet(500)">+500</button>
+    </div>
+
+    <div class="chat-container">
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-box">
+            <input type="text" id="chat-input" placeholder="Введите сообщение..." onkeydown="if(event.key==='Enter')sendChat()">
+            <button onclick="sendChat()">Отправить</button>
+        </div>
+    </div>
+
+    <div class="modal" id="admin-modal">
+        <div class="modal-content">
+            <h3>Админка</h3>
+            <input type="password" id="admin-pass" placeholder="Пароль (admin)">
+            <input type="text" id="admin-target" placeholder="ID игрока">
+            <input type="number" id="admin-amount" placeholder="Новый баланс">
+            <button onclick="execAdmin()">Установить баланс</button>
+            <button onclick="document.getElementById('admin-modal').style.display='none'">Закрыть</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+
+        function makeBet(amount) {
+            socket.emit('set_bet', amount);
+        }
+
+        socket.on('update_players', (players) => {
+            const zone = document.getElementById('players-zone');
+            zone.innerHTML = '';
+            for (let id in players) {
+                let p = players[id];
+                let isMe = id === socket.id;
+                let div = document.createElement('div');
+                div.className = 'player-spot';
+                div.innerHTML = `
+                    <h4>${p.name} ${isMe ? '(Вы)' : ''}</h4>
+                    <p>Баланс: $${p.balance}</p>
+                    <p>Ставка: $${p.bet}</p>
+                    <p style="font-size:11px; color:#aaa; margin-top:5px; word-break:break-all;">ID: ${id}</p>
+                `;
+                zone.appendChild(div);
+            }
+        });
+
+        function sendChat() {
+            let input = document.getElementById('chat-input');
+            if (!input.value.trim()) return;
+            socket.emit('chat_message', { text: input.value });
+            input.value = '';
+        }
+
+        socket.on('chat_message', (data) => {
+            let box = document.getElementById('chat-messages');
+            box.innerHTML += `<div><b>${data.name}:</b> ${data.text}</div>`;
+            box.scrollTop = box.scrollHeight;
+        });
+
+        function openAdmin() {
+            document.getElementById('admin-modal').style.display = 'flex';
+        }
+
+        function execAdmin() {
+            let pass = document.getElementById('admin-pass').value;
+            let targetId = document.getElementById('admin-target').value;
+            let amount = parseInt(document.getElementById('admin-amount').value);
+            socket.emit('admin_action', { pass, action: 'set_money', targetId, amount });
+        }
+
+        socket.on('admin_response', (res) => {
+            alert(res.msg);
+            if(res.success) document.getElementById('admin-modal').style.display = 'none';
+        });
+    </script>
+</body>
+</html>
